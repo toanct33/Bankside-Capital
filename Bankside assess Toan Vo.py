@@ -122,6 +122,7 @@ def compute_metrics(transactions, final_portfolio_value):
             max_drawdown = (peak - ret) / peak
 
     return {
+        'Final Portfolio Value': final_portfolio_value,
         'Total Return': total_return,
         'Annual Return': annual_return,
         'Annual Volatility': annual_volatility,
