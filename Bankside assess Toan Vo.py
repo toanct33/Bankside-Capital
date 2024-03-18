@@ -1,7 +1,7 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
-
+import ta
 
 # Define the stock symbols
 stock_symbols = ['MSFT', 'AAPL', 'NVDA', 'AMZN', 'GOOG', 'META', 'TSLA']
@@ -17,22 +17,15 @@ stock_data = {}
 for symbol in stock_symbols:
     stock_data[symbol] = yf.download(symbol, start=start_date, end=end_date)
 
-# Example: Accessing historical price data for MSFT
-print("MSFT Historical Data:")
-print(stock_data['MSFT'].head())
-
-# Example: Accessing historical price data for AAPL
-print("\nAAPL Historical Data:")
-print(stock_data['AAPL'].head())
-
 
 # Function to calculate Double Bollinger Bands
 def calculate_dbb(df):
-    df['Mid Band'] = df['Adj Close'].rolling(window=20).mean()
-    df['20 Day STD'] = df['Adj Close'].rolling(window=20).std()
-    df['Upper Band'] = df['Mid Band'] + (2 * df['20 Day STD'])
-    df['Lower Band'] = df['Mid Band'] - (2 * df['20 Day STD'])
+    df['sma'] = ta.trend.sma_indicator(df['Adj Close'], window=20)
+    df['std'] = df['Adj Close'].rolling(window=20).std()
+    df['upper_band'] = df['sma'] + 2 * df['std']
+    df['lower_band'] = df['sma'] - 2 * df['std']
     return df
+
 
 # Function to generate buy and sell signals
 def generate_signals(df):
@@ -40,32 +33,25 @@ def generate_signals(df):
     signals['Signal'] = 0.0
 
     # Buy signals
-    signals['Signal'][df['Adj Close'] < df['Lower Band']] = 1.0
+    signals.loc[df['Adj Close'] < df['lower_band'], 'Signal'] = 1.0
 
     # Sell signals
-    signals['Signal'][df['Adj Close'] > df['Upper Band']] = -1.0
+    signals.loc[df['Adj Close'] > df['upper_band'], 'Signal'] = -1.0
 
     return signals
+
 
 # Apply the Double Bollinger Bands strategy to each stock's historical data
 for symbol in stock_symbols:
     stock_data[symbol] = calculate_dbb(stock_data[symbol])
     stock_data[symbol] = pd.concat([stock_data[symbol], generate_signals(stock_data[symbol])], axis=1)
 
-# Example: Displaying the DataFrame with Double Bollinger Bands and signals for MSFT
-print("MSFT Historical Data with Double Bollinger Bands and Signals:")
-print(stock_data['MSFT'].tail())
-
-
-# Define initial capital
-initial_capital = 10000
 
 # Function to backtest trading signals
 def backtest_signals(df):
+    global close_price
     capital = initial_capital
     shares_owned = 0
-    position_value = 0
-    starting_shares = 0
     transactions = []
 
     for index, row in df.iterrows():
@@ -77,36 +63,27 @@ def backtest_signals(df):
             shares_to_buy = int(capital / close_price)
             capital -= shares_to_buy * close_price
             shares_owned += shares_to_buy
-            position_value = shares_owned * close_price
             transactions.append(('BUY', index, close_price, shares_to_buy))
-            if starting_shares == 0:
-                starting_shares = shares_owned
 
         # Sell signal
         elif signal == -1.0 and shares_owned > 0:
             capital += shares_owned * close_price
             transactions.append(('SELL', index, close_price, shares_owned))
             shares_owned = 0
-            position_value = 0
 
     # Calculate final portfolio value
     final_value = capital + (shares_owned * close_price)
     return final_value, transactions
+
+
+# Define initial capital
+initial_capital = 10000
 
 # Perform backtesting for each stock
 backtest_results = {}
 for symbol in stock_symbols:
     final_value, transactions = backtest_signals(stock_data[symbol])
     backtest_results[symbol] = {'Final Portfolio Value': final_value, 'Transactions': transactions}
-
-# Display backtesting results
-for symbol, result in backtest_results.items():
-    print(f"Backtesting results for {symbol}:")
-    print(f"Final Portfolio Value: ${result['Final Portfolio Value']:.2f}")
-    print("Transactions:")
-    for transaction in result['Transactions']:
-        print(transaction)
-    print()
 
 
 # Function to compute performance metrics
@@ -131,7 +108,7 @@ def compute_metrics(transactions, final_portfolio_value):
     risk_free_rate = 0  # Assume risk-free rate is 0 for simplicity
     sharpe_ratio = (annual_return - risk_free_rate) / annual_volatility
 
-    # Calculate Sortino ratio
+    # Calculate Sorting ratio
     downside_returns = np.where(daily_returns < 0, daily_returns, 0)
     sortino_ratio = (annual_return - risk_free_rate) / np.std(downside_returns) * np.sqrt(252)
 
@@ -152,6 +129,7 @@ def compute_metrics(transactions, final_portfolio_value):
         'Sortino Ratio': sortino_ratio,
         'Maximum Drawdown': max_drawdown
     }
+
 
 # Compute performance metrics for each stock
 performance_metrics = {}
